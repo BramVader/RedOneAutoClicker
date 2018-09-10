@@ -2,9 +2,11 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -13,11 +15,13 @@ namespace AndroidAdb
 {
     public partial class Form1 : Form
     {
+        private Random rnd;
         bool initialized = false;
         private AdbClient client;
         private DeviceData device;
+        private System.Windows.Forms.Timer timer1;
         private Image image;
-        private Point? lastPoint, prevPoint;
+        private Point? lastPoint, prevPoint, newPoint;
         private float imageScale = 1.0f;
         private CancellationTokenSource cts = null;
         private List<BonusMask> bonusMasks;
@@ -28,6 +32,7 @@ namespace AndroidAdb
         public Form1()
         {
             InitializeComponent();
+            pictureBox1.Paint += OnPaint;
         }
 
         protected override void OnActivated(EventArgs e)
@@ -36,16 +41,28 @@ namespace AndroidAdb
             if (!initialized) Initialize();
         }
 
-        protected override void OnPaint(PaintEventArgs e)
+        protected void OnPaint(Object sender, PaintEventArgs e)
         {
+            void DrawCross(Pen pen, Point p)
+            {
+                e.Graphics.DrawLine(pen, p.X - 40, p.Y - 40, p.X + 40, p.Y + 40);
+                e.Graphics.DrawLine(pen, p.X - 40, p.Y + 40, p.X + 40, p.Y - 40);
+            }
+
             base.OnPaint(e);
             if (image != null)
             {
                 float scX = (float)image.Width / this.ClientSize.Width;
                 float scY = (float)image.Height / this.ClientSize.Height;
                 imageScale = Math.Max(scX, scY);
-                e.Graphics.DrawImage(image, 0f, 0f, (float)image.Width / imageScale, (float)image.Height / imageScale);
-                //e.Graphics.DrawImageUnscaled(image, 0, -900);
+                e.Graphics.ScaleTransform(1f/imageScale, 1f/imageScale);
+                e.Graphics.DrawImageUnscaled(image, 0, 0);
+                if (newPoint.HasValue)
+                {
+                    DrawCross(Pens.Red, newPoint.Value);
+                    if (lastPoint.HasValue) DrawCross(Pens.Yellow, newPoint.Value);
+                    if (prevPoint.HasValue) DrawCross(Pens.Green, prevPoint.Value);
+                }
             }
         }
 
@@ -91,9 +108,55 @@ namespace AndroidAdb
             var result = server.StartServer(@"D:\Android\Sdk\platform-tools\adb.exe", restartServerIfNewer: false);
             client = (AdbClient)AdbClient.Instance;
             device = client.GetDevices().Single();
+
+            //timer1 = new System.Windows.Forms.Timer { Interval = 50, Enabled = true };
+            //timer1.Tick += Timer1_Tick;
+            //sw.Start();
+
             ReadBonusImages();
             ImageUpdateLoop();
             initialized = true;
+        }
+
+        int v = 0;
+        int[] pv = new int[] { 0, 4, 2, 6, -1, 1, 5, 3, 7, -2 };
+
+        Stopwatch sw = new Stopwatch();
+
+        Point fireLaser = new Point(675, 1660);
+        Point p1 = new Point(240, 200);
+        Point p2 = new Point(860, 200);
+        Point p3 = new Point(240, 1320);
+        Point p4 = new Point(860, 1320);
+
+        private void Timer1_Tick(object sender, EventArgs e)
+        {
+            timer1.Enabled = false;
+
+            //Point p;
+            //if (pv[v] == -1) p = new Point(529, 1069);           // "Next Level"
+            //else if (pv[v] == -2) p = new Point(874, 1120);      // "No" (Watch one video)
+            //else p = new Point(194 + (910 - 194) * pv[v] / 8, 265);
+            //client.ExecuteRemoteCommand($"input tap {p.X} {p.Y}", device, null);
+            //v = (v + 1) % pv.Length;
+
+            if (sw.ElapsedMilliseconds > (1 * 30) * 1000)
+            {
+                client.ExecuteRemoteCommand($"input tap 890 1120", device, null);  // "No" (Watch one video)
+                client.ExecuteRemoteCommand($"input tap 220 1450", device, null);  // Retry level
+                sw.Restart();
+            }
+            else
+            {
+                client.ExecuteRemoteCommand($"input tap {fireLaser.X} {fireLaser.Y}", device, null);
+                if (v == 0)
+                    client.ExecuteRemoteCommand($"input swipe {p1.X} {p1.Y} {p4.X} {p4.Y} 500", device, null);
+                else
+                    client.ExecuteRemoteCommand($"input swipe {p2.X} {p2.Y} {p3.X} {p3.Y} 500", device, null);
+                v = (v + 1) % 2;
+            }
+
+            timer1.Enabled = true;
         }
 
         private async void ImageUpdateLoop()
@@ -146,20 +209,29 @@ namespace AndroidAdb
                             muteTime3 = DateTime.UtcNow.AddSeconds(4);
                         }
 
-                        if (muteTime2.HasValue && DateTime.UtcNow >= muteTime2.Value) muteTime2 = null;
-
-                        if (curPoint != null && prevPoint != null && lastPoint == null && muteTime2 == null)
+                        if (muteTime2.HasValue && DateTime.UtcNow >= muteTime2.Value)
                         {
-                            float dx = curPoint.Value.X - prevPoint.Value.X;
-                            float dy = curPoint.Value.Y - prevPoint.Value.Y;
-                            LoggingTextbox.AppendText($"{DateTime.Now}: Red one at ({curPoint.Value.X}, {curPoint.Value.Y}), ({dx}, {dy})\r\n");
-                            client.ExecuteRemoteCommand($"input tap {it.Item2.Value.X + dx} {it.Item2.Value.Y + dy}", device, null);
-                            muteTime2 = DateTime.UtcNow.AddSeconds(4);
-                            //System.Media.SystemSounds.Beep.Play();
+                            muteTime2 = null;
+                            newPoint = null;
+                        }
+
+                        if (curPoint != null && prevPoint != null && muteTime2 == null)
+                        {
+                            int dx = curPoint.Value.X - prevPoint.Value.X;
+                            int dy = curPoint.Value.Y - prevPoint.Value.Y;
+                            Point testPoint = new Point(curPoint.Value.X + dx, curPoint.Value.Y + dy);
+                            if (ImageUpdater.Clickable(testPoint))
+                            {
+                                newPoint = testPoint;
+                                LoggingTextbox.AppendText($"{DateTime.Now}: Red one at ({curPoint.Value.X}, {curPoint.Value.Y}), ({dx}, {dy})\r\n");
+                                client.ExecuteRemoteCommand($"input tap {testPoint.X} {testPoint.Y}", device, null);
+                                muteTime2 = DateTime.UtcNow.AddSeconds(0.5);
+                                System.Media.SystemSounds.Beep.Play();
+                            }
                         }
                         lastPoint = prevPoint;
-                        prevPoint = it.Item2;
-                        Invalidate();
+                        prevPoint = curPoint;
+                        if (!collapsed) pictureBox1.Invalidate();
                     }
                 });
                 cts = new CancellationTokenSource();
@@ -186,6 +258,21 @@ namespace AndroidAdb
                     return;
                 }
             }
+        }
+
+        private int expandedWidth = 0;
+        private bool collapsed = true;
+
+        private void ShowHideButton_Click(object sender, EventArgs e)
+        {
+            int collapsedWidth = ShowHideButton.Right + 16;
+            if (expandedWidth == 0) expandedWidth = collapsedWidth * 2;
+
+            collapsed = Width == collapsedWidth;
+            Width = collapsed ? expandedWidth : collapsedWidth;
+            collapsed = !collapsed;
+            ShowHideButton.Text = collapsed ? "Show" : "Hide";
+            pictureBox1.Invalidate();
         }
 
         protected override void OnMouseClick(MouseEventArgs e)

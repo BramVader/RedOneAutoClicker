@@ -75,14 +75,20 @@ namespace AndroidAdb
             return null;
         }
 
+        static Rectangle[] rects = new[]
+        {
+            new Rectangle(0, 316, 661, 223),
+            new Rectangle(0, 539, 869, 775),
+            new Rectangle(346, 1003, 734, 459)
+        };
+
+        public static bool Clickable(Point p)
+        {
+            return rects.Any(r => p.X >= r.Left && p.X < r.Right && p.Y >= r.Top && p.Y < r.Bottom);
+        }
+        
         private Point? FindRedOne(Framebuffer buffer)
         {
-            var rects = new[]
-            {
-                new Rectangle(0, 316, 661, 223),
-                new Rectangle(0, 539, 869, 775),
-                new Rectangle(346, 1003, 734, 459)
-            };
 
             int step = 8;
             int halfStep = step / 4;
@@ -91,6 +97,7 @@ namespace AndroidAdb
             int blueOffset = (int)buffer.Header.Blue.Offset / 8;
 
             int pixelSize = (int)buffer.Header.Size / (int)buffer.Header.Width / (int)buffer.Header.Height;
+            int lineSize = pixelSize * (int)buffer.Header.Width;
 
             int y1 = rects.Min(r => r.Top);
             int y2 = rects.Max(r => r.Bottom);
@@ -101,11 +108,25 @@ namespace AndroidAdb
                 {
                     if (buffer.Data[adr + redOffset] > 128 &&
                         buffer.Data[adr + greenOffset] < 10 &&
-                        buffer.Data[adr + blueOffset] < 10 &&
-                        rects.Any(r => x >= r.Left && x < r.Right && y >= r.Top && y < r.Bottom))
+                        buffer.Data[adr + blueOffset] < 10)
                     {
-                        return new Point(x, y);
+                        return new Point(x + 4, y + 16);
                     }
+                    //if (Clickable(new Point(x, y)))
+                    //{
+                    //    buffer.Data[adr + redOffset] = 255;
+                    //    buffer.Data[adr + greenOffset] = 255;
+                    //    buffer.Data[adr + blueOffset] = 225;
+                    //    buffer.Data[adr + pixelSize + redOffset] = 255;
+                    //    buffer.Data[adr + pixelSize + greenOffset] = 255;
+                    //    buffer.Data[adr + pixelSize + blueOffset] = 225;
+                    //    buffer.Data[adr + lineSize + redOffset] = 255;
+                    //    buffer.Data[adr + lineSize + greenOffset] = 255;
+                    //    buffer.Data[adr + lineSize + blueOffset] = 225;
+                    //    buffer.Data[adr + lineSize + pixelSize + redOffset] = 255;
+                    //    buffer.Data[adr + lineSize + pixelSize + greenOffset] = 255;
+                    //    buffer.Data[adr + lineSize + pixelSize + blueOffset] = 225;
+                    //}
                     adr += step * pixelSize;
                 }
             }
